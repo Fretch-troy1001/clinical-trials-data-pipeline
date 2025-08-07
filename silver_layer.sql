@@ -449,12 +449,64 @@ SELECT
             -- Otherwise, just use the original name
             ELSE downcase_name 
         END
-    ) AS name
+    ) AS name,
+	 -- Final, comprehensive CASE statement for categorizing therapeutic areas
+CASE
+    -- Oncology
+    WHEN downcase_name ILIKE ANY (ARRAY['%cancer%', '%carcinoma%', '%tumor%', '%lymphoma%', '%leukemia%', '%sarcoma%', '%neoplasm%', '%melanoma%', '%myeloma%', '%glioblastoma%']) 
+        THEN 'Oncology'
+    
+    -- Central Nervous System (CNS)
+    WHEN downcase_name ILIKE ANY (ARRAY['%neuro%', '%nervous%', '%stroke%', '%alzheimer%', '%parkinson%', '%brain%', '%spinal%', '%dementia%', '%epilepsy%', '%multiple sclerosis%', '%cognitive impairment%']) 
+        THEN 'Central Nervous System'
+    
+    -- Cardiovascular
+    WHEN downcase_name ILIKE ANY (ARRAY['%cardiac%', '%heart%', '%vascular%', '%artery%', '%hypertension%', '%atrial fibrillation%', '%atherosclerosis%', '%myocardial infarction%']) 
+        THEN 'Cardiovascular'
+    
+    -- Metabolic Diseases
+    WHEN downcase_name ILIKE ANY (ARRAY['%obesity%', '%diabetes%', '%metabolic syndrome%', '%overweight%', '%hypercholesterolemia%', '%insulin resistance%']) 
+        THEN 'Metabolic'
+    
+    -- Infectious Diseases
+    WHEN downcase_name ILIKE ANY (ARRAY['%hiv%', '%covid-19%', '%influenza%', '%hepatitis%', '%tuberculosis%', '%malaria%', '%sepsis%', '%pneumonia%', '%infection%']) 
+        THEN 'Infectious Disease'
+        
+    -- Inflammatory & Autoimmune
+    WHEN downcase_name ILIKE ANY (ARRAY['%rheumatoid arthritis%', '%crohn''s disease%', '%ulcerative colitis%', '%psoriasis%', '%inflammation%', '%atopic dermatitis%', '%asthma%']) 
+        THEN 'Inflammatory & Autoimmune'
+
+    -- Mental Health / Psychiatry
+    WHEN downcase_name ILIKE ANY (ARRAY['%depression%', '%anxiety%', '%schizophrenia%', '%bipolar disorder%', '%insomnia%', '%stress%', '%autism%', '%depressive disorder%']) 
+        THEN 'Mental Health'
+
+    -- Respiratory Diseases
+    WHEN downcase_name ILIKE ANY (ARRAY['%copd%', '%pulmonary%', '%cystic fibrosis%', '%sleep apnea%']) 
+        THEN 'Respiratory'
+        
+    -- Musculoskeletal Disorders
+    WHEN downcase_name ILIKE ANY (ARRAY['%osteoarthritis%', '%low back pain%', '%osteoporosis%', '%arthritis%', '%sarcopenia%', '%fibromyalgia%']) 
+        THEN 'Musculoskeletal'
+
+    -- Pain & Anesthesiology
+    WHEN downcase_name ILIKE ANY (ARRAY['%pain%', '%anesthesia%', '%analgesia%', '%migraine%']) 
+        THEN 'Pain & Anesthesiology'
+
+    -- Social / Behavioral (To be excluded later)
+    WHEN downcase_name ILIKE ANY (ARRAY['%bully%', '%teen pregnancy%', '%smoking cessation%', '%exercise%', '%physical activity%', '%smoking%']) 
+        THEN 'Social & Behavioral'
+   
+    ELSE 'Others'
+END AS therapeutic_area
 FROM
     bronze.conditions;
 
-
-
+SELECT	name, COUNT(*)
+FROM silver.conditions
+WHERE therapeutic_area = 'Others'
+GROUP BY name
+ORDER BY  COUNT(*) DESC
+limit 100;
 --==================================================================
 -- 4. LOADING THE bronze.interventions TABLE TO SILVER LAYER
 --==================================================================
@@ -496,6 +548,11 @@ FROM
     bronze.outcomes;
 
 
+
+SELECT sponsor_category, COUNT(*)
+FROM silver.sponsors
+GROUP BY sponsor_category
+ORDER BY COUNT(*) DESC ;
 
 
 /*

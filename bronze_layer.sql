@@ -1,6 +1,4 @@
--- ==================================================================
--- Creating bronze Schema and Creating / loading bronze.studies
--- ==================================================================
+
 -- Create bronze Schema --
 
 CREATE SCHEMA IF NOT EXISTS bronze;

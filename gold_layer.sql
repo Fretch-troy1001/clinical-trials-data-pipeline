@@ -221,7 +221,8 @@ FROM silver.sponsors AS s
 JOIN gold.dim_sponsors AS ds
 		ON s.clean_sponsor_name = ds.sponsor_name;
 
-	
+
+
 
 --===================================================
 --  Creating the bridge_trial_conditions   for the GOLD LAYER
@@ -249,6 +250,110 @@ SELECT
 FROM silver.interventions AS s
 JOIN gold.dim_interventions AS di
 		ON s.name = di.intervention_name;
+
+
+
+
+--===================================================
+--  Creating the gold.opportunity_rank   for the GOLD LAYER
+--===================================================
+DROP TABLE IF EXISTS gold.opportunity_rank;
+CREATE TABLE gold.opportunity_rank AS
+
+WITH 
+-- Step 1: Pre-aggregate the distinct count of industry sponsors for each trial.
+-- This is crucial to prevent the "fan-out" effect in later joins.
+sponsor_agg AS (
+    SELECT
+        nct_id,
+        COUNT(DISTINCT CASE WHEN sponsor_category = 'Industry' THEN clean_sponsor_name END) AS industry_sponsor_count
+    FROM
+        silver.sponsors
+    GROUP BY
+        nct_id
+),
+
+-- Step 2: Aggregate all trial-level metrics by condition.
+-- This is the main engine of the query, where we join studies to their categorized conditions.
+condition_agg AS (
+    SELECT
+        c.name AS condition_name,
+        c.therapeutic_area, -- Carry the therapeutic area through for final filtering and analysis
+        
+        -- Metric: Count of trials in late phases (Phase 3 or 4)
+        SUM(CASE WHEN s.phase IN ('PHASE 3', 'PHASE 4') THEN 1 ELSE 0 END) AS late_phase_count,
+        
+        -- Metric: Total number of unique industry sponsors for this condition
+        SUM(sa.industry_sponsor_count) AS total_industry_sponsors,
+        
+        -- Metric: Count of all trials for this condition
+        COUNT(s.nct_id) AS total_trials,
+
+        -- Momentum: Count trials in a recent 2-year bucket (Aug 2023 - Aug 2025)
+        SUM(CASE WHEN s.start_date >= '2023-08-01' THEN 1 ELSE 0 END) AS recent_trials,
+        
+        -- Momentum: Count trials in the prior 2-year bucket (Aug 2021 - Jul 2023)
+        SUM(CASE WHEN s.start_date BETWEEN '2021-08-01' AND '2023-07-31' THEN 1 ELSE 0 END) AS older_trials
+        
+    FROM
+        silver.studies s
+    JOIN
+        silver.conditions c ON s.nct_id = c.nct_id
+    LEFT JOIN
+        sponsor_agg sa ON s.nct_id = sa.nct_id
+    GROUP BY
+        c.name, c.therapeutic_area
+),
+
+-- Step 3: Calculate final scores from the aggregated data.
+-- This CTE also filters out irrelevant categories and low-volume conditions.
+final_scores AS (
+    SELECT
+        condition_name,
+        therapeutic_area,
+        total_trials,
+        late_phase_count,
+        total_industry_sponsors,
+        
+        -- Safely calculate momentum score, handling division by zero.
+        -- If there are no older trials, any new trials represent significant growth.
+        CASE 
+            WHEN older_trials = 0 AND recent_trials > 0 THEN 2.0 -- Assign a high, fixed score for new growth
+            WHEN older_trials > 0 THEN (CAST(recent_trials AS REAL) - older_trials) / older_trials
+            ELSE 0 
+        END AS momentum_score
+
+    FROM
+        condition_agg
+    WHERE 
+        -- Strategic Filtering: Focus only on relevant areas and remove noise
+        total_trials > 10
+        AND therapeutic_area NOT IN ('Others', 'Social & Behavioral')
+        AND condition_name NOT ILIKE '%healthy%'
+)
+
+-- Final SELECT: Rank the conditions to find the best opportunities.
+-- The Opportunity Score is designed so that a higher score is better.
+SELECT
+    condition_name,
+    therapeutic_area,
+    total_trials,
+    late_phase_count,
+    total_industry_sponsors,
+    momentum_score,
+    
+    -- Final Opportunity Score: Higher is better.
+    -- Each factor is ranked so that a better attribute gets a higher rank number.
+    (
+        RANK() OVER (ORDER BY momentum_score ASC)             -- Higher momentum gets a higher rank
+        + RANK() OVER (ORDER BY total_industry_sponsors DESC) -- Fewer sponsors gets a higher rank
+        + RANK() OVER (ORDER BY late_phase_count DESC)        -- Fewer late-phase trials gets a higher rank
+    ) AS opportunity_score
+
+FROM
+    final_scores
+ORDER BY
+    opportunity_score DESC; -- Order DESC to see the best opportunities (highest scores) on top
 
 /*
 ================================================================================
